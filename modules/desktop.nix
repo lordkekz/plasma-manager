@@ -412,6 +412,21 @@ in
       };
     };
 
+    wallpaperOnly = lib.mkOption {
+      type = with lib.types; nullOr bool;
+      default = null;
+      example = true;
+      description = ''
+        Selects the applet which renders the desktop. When `true`, the
+        "Desktop" applet (`org.kde.desktopcontainment`) is used, leaving a
+        clean layout with no icons (the contents of the Desktop directory
+        are not shown). When `false`, the "Folder View" applet
+        (`org.kde.plasma.folder`) is used, which displays the contents of
+        the Desktop directory as icons. When `null` (the default), the
+        current desktop applet is kept.
+      '';
+    };
+
     widgets = lib.mkOption {
       type = with lib.types; nullOr (listOf widgets.desktopType);
       default = null;
@@ -508,6 +523,21 @@ in
               ${widgets.lib.stringIfNotNull cfg.desktop.mouseActions.verticalScroll ''actionPluginSubSection.writeEntry("wheel:Vertical;NoModifier", "${cfg.desktop.mouseActions.verticalScroll}");''}
             '';
             priority = 3;
+            restartServices = [ "plasma-plasmashell" ];
+          }
+        );
+
+        desktopScript."set_desktop_wallpaper_only" = (
+          lib.mkIf (cfg.desktop.wallpaperOnly != null) {
+            text = ''
+              // Desktop applet (icons or wallpaper only)
+              let allDesktops = desktops();
+              for (const desktop of allDesktops) {
+                desktop.currentConfigGroup = [];
+                desktop.writeConfig("plugin", "${if cfg.desktop.wallpaperOnly then "org.kde.desktopcontainment" else "org.kde.plasma.folder"}");
+              }
+            '';
+            priority = 1;
             restartServices = [ "plasma-plasmashell" ];
           }
         );
