@@ -37,7 +37,15 @@ let
     }
 
     #       FILE                EXPECTED          GROUPS ...                    KEY                [COMMENT]
-    assert  kglobalshortcutsrc  Meta+F            services firefox.desktop      new-window         # Set with services option
+    assert  plasma-org.kde.plasma.desktop-appletsrc org.kde.desktopcontainment \
+                                                    Containments 1                plugin               # Set with desktop.wallpaperOnly
+    assert  plasma-org.kde.plasma.desktop-appletsrc org.kde.desktopcontainment \
+                                                    Containments 3                plugin               # Second activity's desktop
+    assert  plasma-org.kde.plasma.desktop-appletsrc org.kde.plasma.panel \
+                                                    Containments 26               plugin               # Panel is not a desktop: untouched
+    assert  plasma-org.kde.plasma.desktop-appletsrc visible \
+                                                    Containments 26 AppletSystemTray HiddenIconsButtonState \
+                                                                                             # Pre-existing entry preserved
     assert  kglobalshortcutsrc  bar               services firefox.desktop      foo                # Set with configFile option
     assert  kdeglobals          ' leading space'  group                         ' leading space'   # Set with shorthand
     assert  kdeglobals          /home/fake        group                         'escaped[$i]'      # Set with longhand and immutable
@@ -67,6 +75,10 @@ testers.nixosTest {
       createHome = true;
       isNormalUser = true;
     };
+    users.users.fresh = {
+      createHome = true;
+      isNormalUser = true;
+    };
 
     home-manager.sharedModules = [
       plasma-module
@@ -81,6 +93,7 @@ testers.nixosTest {
         home.stateVersion = "23.11";
         programs.plasma = {
           enable = true;
+          desktop.wallpaperOnly = true;
           workspace.clickItemTo = "select";
           kwin.titlebarButtons.right = [ "maximize" ];
           configFile.kwinrc = {
@@ -115,7 +128,36 @@ testers.nixosTest {
           [escaped/nested][group]
           untouched = \svalue
           EOF
+          cat <<EOF >> ~/.config/plasma-org.kde.plasma.desktop-appletsrc
+          [Containments][1]
+          plugin=org.kde.plasma.folder
+          placementMode=0
+
+          [Containments][3]
+          activityId=50d0a4c1-8b2f-4c6a-9f0e-2d3c4b5a6e7f
+          plugin=org.kde.plasma.folder
+          placementMode=0
+
+          [Containments][26]
+          plugin=org.kde.plasma.panel
+
+          [Containments][26][AppletSystemTray]
+          HiddenIconsButtonState = visible
+          EOF
         '';
+      };
+
+    # A user without a session yet has no layout file: the option must not
+    # create a stub layout, or the shell would load it instead of the
+    # default layout on first start.
+    home-manager.users.fresh =
+      { lib, ... }:
+      {
+        home.stateVersion = "23.11";
+        programs.plasma = {
+          enable = true;
+          desktop.wallpaperOnly = true;
+        };
       };
   };
 
@@ -136,5 +178,12 @@ testers.nixosTest {
     machine.succeed("test -e /home/fake/.config/kglobalshortcutsrc")
     machine.succeed("test -e /home/fake/.config/foobarrc")
     machine.succeed("su - fake -c plasma-basic-test")
+
+    # The fresh user got no stub layout file
+    machine.wait_until_succeeds(
+        "systemctl show -p ActiveState --value home-manager-fresh.service | grep -q 'inactive' && " +
+        "systemctl show -p Result --value home-manager-fresh.service | grep -q 'success'"
+    , 10)
+    machine.fail("test -e /home/fresh/.config/plasma-org.kde.plasma.desktop-appletsrc")
   '';
 }

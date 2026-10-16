@@ -1,8 +1,14 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.programs.plasma;
 
   widgets = import ./widgets { inherit lib; };
+
+  setDesktopApplet = pkgs.writeShellApplication {
+    name = "set_desktop_applet";
+    runtimeInputs = [ pkgs.python3 ];
+    text = "python ${../script/set_desktop_applet.py} \"$@\"";
+  };
 
   desktopIconSortingModeId = {
     manual = -1;
@@ -424,6 +430,17 @@ in
         (`org.kde.plasma.folder`) is used, which displays the contents of
         the Desktop directory as icons. When `null` (the default), the
         current desktop applet is kept.
+
+        At activation time, the saved Plasma layout is scanned and the
+        `plugin` of every desktop containment (i.e. the desktops of all
+        activities) is set accordingly; it takes effect when the session
+        (re)loads the layout, e.g. at login. Sections for panels, widgets
+        and other applets are left untouched. The layout file must already
+        exist (it is created by the running shell): a user without a
+        session yet is unaffected and the shell loads its default layout
+        on first start. In-session changes by the user (System Settings)
+        set the applet back on the next hm activation, as with any
+        managed setting.
       '';
     };
 
@@ -527,21 +544,6 @@ in
           }
         );
 
-        desktopScript."set_desktop_wallpaper_only" = (
-          lib.mkIf (cfg.desktop.wallpaperOnly != null) {
-            text = ''
-              // Desktop applet (icons or wallpaper only)
-              let allDesktops = desktops();
-              for (const desktop of allDesktops) {
-                desktop.currentConfigGroup = [];
-                desktop.writeConfig("plugin", "${if cfg.desktop.wallpaperOnly then "org.kde.desktopcontainment" else "org.kde.plasma.folder"}");
-              }
-            '';
-            priority = 1;
-            restartServices = [ "plasma-plasmashell" ];
-          }
-        );
-
         desktopScript."set_desktop_widgets" = (
           lib.mkIf (cfg.desktop.widgets != null) {
             text = ''
@@ -561,6 +563,23 @@ in
           }
         );
       };
+
+      # The saved layout is scanned at activation time and the `plugin` of
+      # every desktop containment (i.e. the desktops of all activities) is
+      # updated; sections for panels, widgets and other applets are left
+      # untouched. Independent of the desktop scripts, so it cannot race
+      # with the loading of the desktops. The layout file must already
+      # exist (it is created by the running shell); if it does not, nothing
+      # is written and the shell loads its default layout on first start.
+      home.activation."set-desktop-applet" =
+        lib.mkIf (cfg.desktop.wallpaperOnly != null) (
+          let
+            targetPlugin = if cfg.desktop.wallpaperOnly then "org.kde.desktopcontainment" else "org.kde.plasma.folder";
+          in
+          lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+            $DRY_RUN_CMD ${setDesktopApplet}/bin/set_desktop_applet "${config.xdg.configHome}/plasma-org.kde.plasma.desktop-appletsrc" "${targetPlugin}"
+          ''
+        );
     }
   );
 }
